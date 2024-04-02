@@ -6,6 +6,13 @@
 """ Deep hough voting network for 3D object detection in point clouds.
 
 Author: Charles R. Qi and Or Litany
+
+Modified by Zhao Na
+Date: September, 2020
+
+Decouple bounding box regression and classification.
+Reference: https://github.com/Na-Z/SDCoT/tree/main
+
 """
 
 import torch
@@ -21,6 +28,8 @@ from voting_module import VotingModule
 from proposal_module import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
+from proposal_generator import ProposalGenerator
+from prediction_header import PredictionHeader
 
 
 class VoteNet(nn.Module):
@@ -66,6 +75,13 @@ class VoteNet(nn.Module):
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
             mean_size_arr, num_proposal, sampling)
 
+        # seed_feature_dim = 256 # this is a fixed number
+        # proposal_feature_dim = 128 # this is a fixed number
+        # self.pgen = ProposalGenerator(num_proposal, sampling, seed_feat_dim=seed_feature_dim,
+        #                                             proposal_feat_dim=proposal_feature_dim)
+
+        # self.prediction_header = PredictionHeader(num_class, num_heading_bin, mean_size_arr, proposal_feature_dim)
+
     def forward(self, inputs):
         """ Forward pass of the network
 
@@ -100,6 +116,13 @@ class VoteNet(nn.Module):
         end_points['vote_features'] = features
 
         end_points = self.pnet(xyz, features, end_points)
+
+        # xyz, features = self.pgen(end_points)
+        # end_points['aggregated_vote_xyz'] = xyz # (batch_size, num_proposal, 3)
+
+        # classifier_weights = None
+        # mean_size_arr = None
+        # end_points = self.prediction_header(end_points, features, classifier_weights, mean_size_arr)
 
         return end_points
 

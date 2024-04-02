@@ -125,8 +125,8 @@ if FLAGS.dataset == 'sunrgbd':
         use_v1=(not FLAGS.use_sunrgbd_v2))
 elif FLAGS.dataset == 'scannet':
     sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
-    from scannet_detection_dataset import ScannetDetectionDataset, MAX_NUM_OBJ
-    from model_util_scannet import ScannetDatasetConfig
+    from scannet_detection_dataset_CIL_stage import ScannetDetectionDataset, MAX_NUM_OBJ
+    from model_util_scannet_CIL import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
         augment=True,
