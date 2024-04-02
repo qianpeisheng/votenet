@@ -29,7 +29,12 @@ class ScannetDetectionDataset(Dataset):
     def __init__(self, split_set='train', num_points=20000,
         use_color=False, use_height=False, augment=False):
 
-        self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
+        # we save train and val data in different folders
+        if split_set=='train':
+            self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
+        elif split_set=='val':
+            self.data_path = os.path.join(BASE_DIR, 'scannet_val_detection_data')
+            
         all_scan_names = list(set([os.path.basename(x)[0:12] \
             for x in os.listdir(self.data_path) if x.startswith('scene')]))
         if split_set=='all':            
