@@ -1,6 +1,6 @@
 # coding: utf-8
 # Copyright (c) Facebook, Inc. and its affiliates.
-# 
+#
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -24,12 +24,13 @@ DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
-STAGE_0_FOR_14_2_2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
+# STAGE_0_FOR_14_2_2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
+ALL_CLASSES = list(range(18)) # for the test set
 
 class ScannetDetectionDataset(Dataset):
-       
+
     def __init__(self, split_set='train', num_points=20000,
-        use_color=False, use_height=False, augment=False, CIL_stage=STAGE_0_FOR_14_2_2, memory_bank=None):
+        use_color=False, use_height=False, augment=False, CIL_stage=ALL_CLASSES, memory_bank=None):
         '''
         Args:
             split_set: str, option from ['train', 'val', 'test', 'all']
@@ -41,41 +42,41 @@ class ScannetDetectionDataset(Dataset):
         '''
         # CIL settings
         self.CIL_stage = CIL_stage
+        self.split_set = split_set # train, val, test, all
+        self.memory_bank = None
 
         # we save train and val data in different folders
         if split_set=='train':
             self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
         elif split_set=='val':
             self.data_path = os.path.join(BASE_DIR, 'scannet_val_detection_data')
-            
+
         all_scan_names = list(set([os.path.basename(x)[0:12] \
             for x in os.listdir(self.data_path) if x.startswith('scene')]))
-        if split_set=='all':            
+        self.all_scan_names = all_scan_names
+        if split_set=='all':
             self.scan_names = all_scan_names
         elif split_set in ['train', 'val', 'test']:
             split_filenames = os.path.join(ROOT_DIR, 'scannet/meta_data',
                 'scannetv2_{}.txt'.format(split_set))
             with open(split_filenames, 'r') as f:
-                self.scan_names = f.read().splitlines()   
+                self.scan_names = f.read().splitlines()
             # remove unavailiable scans
             num_scans = len(self.scan_names)
             self.scan_names = [sname for sname in self.scan_names \
                 if sname in all_scan_names]
-            if split_set == 'train':
-                # keep only the scenes that are in the current stage
-                self.keep_scene_at_stage()
             print('kept {} scans out of {}'.format(len(self.scan_names), num_scans))
             num_scans = len(self.scan_names)
         else:
             print('illegal split name')
             return
-        
+
         self.num_points = num_points
-        self.use_color = use_color        
+        self.use_color = use_color
         self.use_height = use_height
         self.augment = augment
 
-       
+
     def __len__(self):
         return len(self.scan_names)
 
@@ -95,59 +96,74 @@ class ScannetDetectionDataset(Dataset):
             scan_idx: int scan index in scan_names list
             pcl_color: unused
         """
-        
-        scan_name = self.scan_names[idx]        
+
+        scan_name = self.scan_names[idx]
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
         instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
         semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
         instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
 
-        # filter instance_bboxes and keep only the ones that are in the current stage
         classes_of_instances = [DC.nyu40id2class[x] for x in instance_bboxes[:,-1]]
-        instance_bboxes = instance_bboxes[[x in self.CIL_stage for x in classes_of_instances]]
+        # the first mask is the one that filters the objects that are not in the current stage
+        mask_novel = [x in self.CIL_stage for x in classes_of_instances]
+
+        # the second mask is the one that filters the objects that are not in the memory bank
+        if self.memory_bank is not None:
+            # get objects in the memory bank that are in the current scene
+            objects_in_memory_bank = [obj for obj in self.memory_bank.object_memory_bank if obj.scene_name == scan_name]
+            # get their indexes
+            indexes_in_memory_bank = [obj.object_id for obj in objects_in_memory_bank]
+            # get the mask, which is a list of length mask_novel, and the element is True at the indexes_in_memory_bank, False otherwise
+            mask_memory_bank = [x in indexes_in_memory_bank for x in range(len(instance_bboxes))]
+            # combine the two masks, either the object is in the current stage or in the memory bank
+            mask = [mask_novel[i] or mask_memory_bank[i] for i in range(len(mask_novel))]
+        else:
+            mask = mask_novel
+
+        instance_bboxes = instance_bboxes[mask]
 
         if not self.use_color:
             point_cloud = mesh_vertices[:,0:3] # do not use color for now
             pcl_color = mesh_vertices[:,3:6]
         else:
-            point_cloud = mesh_vertices[:,0:6] 
+            point_cloud = mesh_vertices[:,0:6]
             point_cloud[:,3:] = (point_cloud[:,3:]-MEAN_COLOR_RGB)/256.0
-        
+
         if self.use_height:
             floor_height = np.percentile(point_cloud[:,2],0.99)
             height = point_cloud[:,2] - floor_height
-            point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1) 
-            
-        # ------------------------------- LABELS ------------------------------        
+            point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1)
+
+        # ------------------------------- LABELS ------------------------------
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
-        target_bboxes_mask = np.zeros((MAX_NUM_OBJ))    
+        target_bboxes_mask = np.zeros((MAX_NUM_OBJ))
         angle_classes = np.zeros((MAX_NUM_OBJ,))
         angle_residuals = np.zeros((MAX_NUM_OBJ,))
         size_classes = np.zeros((MAX_NUM_OBJ,))
         size_residuals = np.zeros((MAX_NUM_OBJ, 3))
-        
+
         point_cloud, choices = pc_util.random_sampling(point_cloud,
-            self.num_points, return_choices=True)        
+            self.num_points, return_choices=True)
         instance_labels = instance_labels[choices]
         semantic_labels = semantic_labels[choices]
-        
+
         pcl_color = pcl_color[choices]
-        
+
         target_bboxes_mask[0:instance_bboxes.shape[0]] = 1
         target_bboxes[0:instance_bboxes.shape[0],:] = instance_bboxes[:,0:6]
-        
-        # ------------------------------- DATA AUGMENTATION ------------------------------        
+
+        # ------------------------------- DATA AUGMENTATION ------------------------------
         if self.augment:
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
                 point_cloud[:,0] = -1 * point_cloud[:,0]
-                target_bboxes[:,0] = -1 * target_bboxes[:,0]                
-                
+                target_bboxes[:,0] = -1 * target_bboxes[:,0]
+
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
                 point_cloud[:,1] = -1 * point_cloud[:,1]
-                target_bboxes[:,1] = -1 * target_bboxes[:,1]                                
-            
+                target_bboxes[:,1] = -1 * target_bboxes[:,1]
+
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random()*np.pi/18) - np.pi/36 # -5 ~ +5 degree
             rot_mat = pc_util.rotz(rot_angle)
@@ -157,28 +173,28 @@ class ScannetDetectionDataset(Dataset):
         # compute votes *AFTER* augmentation
         # generate votes
         # Note: since there's no map between bbox instance labels and
-        # pc instance_labels (it had been filtered 
+        # pc instance_labels (it had been filtered
         # in the data preparation step) we'll compute the instance bbox
-        # from the points sharing the same instance label. 
+        # from the points sharing the same instance label.
         point_votes = np.zeros([self.num_points, 3])
         point_votes_mask = np.zeros(self.num_points)
-        for i_instance in np.unique(instance_labels):            
+        for i_instance in np.unique(instance_labels):
             # find all points belong to that instance
             ind = np.where(instance_labels == i_instance)[0]
-            # find the semantic label            
+            # find the semantic label
             if semantic_labels[ind[0]] in DC.nyu40ids:
                 x = point_cloud[ind,:3]
                 center = 0.5*(x.min(0) + x.max(0))
                 point_votes[ind, :] = center - x
                 point_votes_mask[ind] = 1.0
-        point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical 
-        
-        class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in instance_bboxes[:,-1]]   
+        point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
+
+        class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in instance_bboxes[:,-1]]
         # NOTE: set size class as semantic class. Consider use size2class.
         size_classes[0:instance_bboxes.shape[0]] = class_ind
         size_residuals[0:instance_bboxes.shape[0], :] = \
             target_bboxes[0:instance_bboxes.shape[0], 3:6] - DC.mean_size_arr[class_ind,:]
-            
+
         ret_dict = {}
         ret_dict['point_clouds'] = point_cloud.astype(np.float32)
         ret_dict['center_label'] = target_bboxes.astype(np.float32)[:,0:3]
@@ -186,9 +202,9 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['heading_residual_label'] = angle_residuals.astype(np.float32)
         ret_dict['size_class_label'] = size_classes.astype(np.int64)
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
-        target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))                                
+        target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))
         target_bboxes_semcls[0:instance_bboxes.shape[0]] = \
-            [DC.nyu40id2class[x] for x in instance_bboxes[:,-1][0:instance_bboxes.shape[0]]]                
+            [DC.nyu40id2class[x] for x in instance_bboxes[:,-1][0:instance_bboxes.shape[0]]]
         ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
         ret_dict['vote_label'] = point_votes.astype(np.float32)
@@ -197,21 +213,43 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['pcl_color'] = pcl_color
         return ret_dict
 
+    def update_CIL_stage(self, CIL_stage, memory_bank):
+        self.CIL_stage = CIL_stage
+        self.memory_bank = memory_bank
+        self.keep_scene_at_stage()
+
+    def update_CIL_stage_test(self, CIL_stage):
+        # just update the CIL_stage without filtering the scenes
+        # i.e., keep all the scenes but use only labels within the CIL_stage
+        self.CIL_stage = CIL_stage
+
     def keep_scene_at_stage(self):
         ''' Keep only the scenes that are in the current stage
             For each scene, check if the scene contains objects belonging to self.CIL_stage
-            
-            Returns: the list of scan_names that are in the current stage
-        
+
+            Returns: None
          '''
         new_scan_names = []
+        # load all scan names to filter out the ones that are not in the current stage
+        split_filenames = os.path.join(ROOT_DIR, 'scannet/meta_data', 'scannetv2_{}.txt'.format(self.split_set))
+        with open(split_filenames, 'r') as f:
+            self.scan_names = f.read().splitlines()
+        # remove unavailiable scans
+        num_scans = len(self.scan_names)
+        self.scan_names = [sname for sname in self.scan_names if sname in self.all_scan_names]
         for scan_name in self.scan_names:
             instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
             classes_of_instances = [DC.nyu40id2class[x] for x in instance_bboxes[:,-1]]
             if any([x in self.CIL_stage for x in classes_of_instances]):
                 new_scan_names.append(scan_name)
+
+        if self.memory_bank is not None:
+            new_scan_names.extend(self.memory_bank.scene_memory_bank)
+            new_scan_names = list(set(new_scan_names))
+
         self.scan_names = new_scan_names
-        
+        print('Stage Update: kept {} scans out of {}'.format(len(self.scan_names), num_scans))
+
 ############# Visualizaion ########
 
 def viz_votes(pc, point_votes, point_votes_mask, name=''):
@@ -220,10 +258,10 @@ def viz_votes(pc, point_votes, point_votes_mask, name=''):
     """
     inds = (point_votes_mask==1)
     pc_obj = pc[inds,0:3]
-    pc_obj_voted1 = pc_obj + point_votes[inds,0:3]    
+    pc_obj_voted1 = pc_obj + point_votes[inds,0:3]
     pc_util.write_ply(pc_obj, 'pc_obj{}.ply'.format(name))
     pc_util.write_ply(pc_obj_voted1, 'pc_obj_voted1{}.ply'.format(name))
-    
+
 def viz_obb(pc, label, mask, angle_classes, angle_residuals,
     size_classes, size_residuals, name=''):
     """ Visualize oriented bounding box ground truth
@@ -245,19 +283,19 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
         box_size = DC.mean_size_arr[size_classes[i], :] + size_residuals[i, :]
         obb[3:6] = box_size
         obb[6] = -1 * heading_angle
-        print(obb)        
+        print(obb)
         oriented_boxes.append(obb)
     pc_util.write_oriented_bbox(oriented_boxes, 'gt_obbs{}.ply'.format(name))
     pc_util.write_ply(label[mask==1,:], 'gt_centroids{}.ply'.format(name))
 
-    
-if __name__=='__main__': 
+
+if __name__=='__main__':
     dset = ScannetDetectionDataset(use_height=True, num_points=40000)
     for i_example in range(4):
         example = dset.__getitem__(1)
-        pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))    
+        pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
         viz_votes(example['point_clouds'], example['vote_label'],
-            example['vote_label_mask'],name=i_example)    
+            example['vote_label_mask'],name=i_example)
         viz_obb(pc=example['point_clouds'], label=example['center_label'],
             mask=example['box_label_mask'],
             angle_classes=None, angle_residuals=None,

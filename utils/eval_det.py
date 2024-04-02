@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# 
+#
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -10,13 +10,13 @@
         For each image:
             Predictions: box, score
             Groundtruths: box
-    
+
     Output:
     For each class:
         precision-recal and average precision
-    
+
     Author: Charles R. Qi
-    
+
     Ref: https://raw.githubusercontent.com/rbgirshick/py-faster-rcnn/master/lib/datasets/voc_eval.py
 """
 import numpy as np
@@ -151,7 +151,11 @@ def eval_det_cls(pred, gt, ovthresh=0.25, use_07_metric=False, get_iou_func=get_
     # compute precision recall
     fp = np.cumsum(fp)
     tp = np.cumsum(tp)
-    rec = tp / float(npos)
+    if npos == 0:
+        # rec is an numpy array of length nd, all elements are 0
+        rec = np.zeros(nd)
+    else:
+        rec = tp / float(npos)
     #print('NPOS: ', npos)
     # avoid divide by zero in case the first detection matches a difficult
     # ground truth
@@ -203,8 +207,8 @@ def eval_det(pred_all, gt_all, ovthresh=0.25, use_07_metric=False, get_iou_func=
         print('Computing AP for class: ', classname)
         rec[classname], prec[classname], ap[classname] = eval_det_cls(pred[classname], gt[classname], ovthresh, use_07_metric, get_iou_func)
         print(classname, ap[classname])
-    
-    return rec, prec, ap 
+
+    return rec, prec, ap
 
 from multiprocessing import Pool
 def eval_det_multiprocessing(pred_all, gt_all, ovthresh=0.25, use_07_metric=False, get_iou_func=get_iou):
@@ -252,5 +256,5 @@ def eval_det_multiprocessing(pred_all, gt_all, ovthresh=0.25, use_07_metric=Fals
             prec[classname] = 0
             ap[classname] = 0
         print(classname, ap[classname])
-    
-    return rec, prec, ap 
+
+    return rec, prec, ap
