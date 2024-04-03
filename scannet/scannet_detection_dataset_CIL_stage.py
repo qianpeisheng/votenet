@@ -17,15 +17,15 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import pc_util
-from model_util_scannet_CIL import rotate_aligned_boxes
+from model_util_scannet_CIL40 import rotate_aligned_boxes
 
-from model_util_scannet_CIL import ScannetDatasetConfig
+from model_util_scannet_CIL40 import ScannetDatasetConfig
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
 # STAGE_0_FOR_14_2_2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
-ALL_CLASSES = list(range(18)) # for the test set
+ALL_CLASSES = list(range(40)) # for the test set
 
 class ScannetDetectionDataset(Dataset):
 
@@ -47,9 +47,9 @@ class ScannetDetectionDataset(Dataset):
 
         # we save train and val data in different folders
         if split_set=='train':
-            self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
+            self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data40')
         elif split_set=='val':
-            self.data_path = os.path.join(BASE_DIR, 'scannet_val_detection_data')
+            self.data_path = os.path.join(BASE_DIR, 'scannet_val_detection_data40')
 
         all_scan_names = list(set([os.path.basename(x)[0:12] \
             for x in os.listdir(self.data_path) if x.startswith('scene')]))
@@ -150,6 +150,10 @@ class ScannetDetectionDataset(Dataset):
         pcl_color = pcl_color[choices]
 
         target_bboxes_mask[0:instance_bboxes.shape[0]] = 1
+
+        if len(instance_bboxes) > MAX_NUM_OBJ:
+            instance_bboxes = instance_bboxes[0:MAX_NUM_OBJ,:]
+            
         target_bboxes[0:instance_bboxes.shape[0],:] = instance_bboxes[:,0:6]
 
         # ------------------------------- DATA AUGMENTATION ------------------------------

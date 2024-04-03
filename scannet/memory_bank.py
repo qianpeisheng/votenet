@@ -17,7 +17,7 @@ import sys
 import numpy as np
 import random
 from PC_object import PC_object
-from model_util_scannet_CIL import ScannetDatasetConfig
+from model_util_scannet_CIL40 import ScannetDatasetConfig
 DC = ScannetDatasetConfig()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -42,7 +42,7 @@ class Memory_bank():
         self.object_memory_bank = [] # can be optimized using a multi indexed dictionary
         self.scene_memory_bank = []
 
-        self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data') # the memory bank is for the train set only.
+        self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data40') # the memory bank is for the train set only.
 
         self.__fill_in_pc_objects__()
 
