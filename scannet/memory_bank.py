@@ -140,8 +140,8 @@ class Memory_bank():
 
     def save_memory_bank(self, save_path, stage_idx):
         # save the memory bank to 2 csv files, one for the object memory bank and one for the scene memory bank.
-        object_memory_bank_file = os.path.join(save_path, f'stage_{stage_idx}_object_memory_bank.csv')
-        scene_memory_bank_file = os.path.join(save_path, f'stage_{stage_idx}_scene_memory_bank.csv')
+        object_memory_bank_file = os.path.join(save_path, f'Stage_{stage_idx}_object_memory_bank.csv')
+        scene_memory_bank_file = os.path.join(save_path, f'Stage_{stage_idx}_scene_memory_bank.csv')
 
         with open(object_memory_bank_file, 'w') as f:
             f.write('scene_name,object_id,object_class\n')

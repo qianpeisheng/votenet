@@ -19,8 +19,11 @@ class ScannetDatasetConfig(object):
         self.num_size_cluster = 18
 
         # CIL related settings
-        self.CIL_stages = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13], [14, 15], [16, 17]] # 14-2-2
+        # self.CIL_stages = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13], [14, 15], [16, 17]] # 14-2-2
+        self.CIL_stages = [[0,1,2,5,7,8,9,10,11,12,13,15,16,17], [3, 4], [6, 14]] # 14-2-2 SDCoT order (alphabetical)
         # self.CIL_stages = [[0,1,2], [3, 4, 5], [6, 7, 8], [9, 10, 11]] # 3-3-3-3 for debugging
+
+        self.CIL_stages_str = self.get_CIL_stages_str()
 
         self.train_num_obj_by_cls = [113, 307, 300, 1427, 4357, 216, 292, 551, 2026, 1985, 661,
                                     186, 116, 390, 406, 1271, 201, 928] # TODO correct the order (this is alphabetical)
@@ -36,6 +39,17 @@ class ScannetDatasetConfig(object):
         for i in range(self.num_size_cluster):
             self.type_mean_size[self.class2type[i]] = self.mean_size_arr[i,:]
 
+    # CIL methods
+    def get_CIL_stages_str(self):
+        # convert the nested list to a string
+        stage_strings = []
+        for stage_idx, stage in enumerate(self.CIL_stages):
+            stage_str = f'Stage {stage_idx}: '
+            for cls in stage:
+                stage_str += str(cls) + ', '
+            stage_strings.append(stage_str)
+        return stage_strings
+    
     def angle2class(self, angle):
         ''' Convert continuous angle to discrete class
             [optinal] also small regression number from
