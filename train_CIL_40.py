@@ -74,7 +74,8 @@ SEED = FLAGS.seed
 BATCH_SIZE = FLAGS.batch_size
 NUM_POINT = FLAGS.num_point
 # MAX_EPOCH = FLAGS.max_epoch
-max_epochs = [150,150,150,150]
+max_epochs = [150,150,150,150,150]
+# max_epochs = [1,1,1,1]
 BASE_LEARNING_RATE = FLAGS.learning_rate
 BN_DECAY_STEP = FLAGS.bn_decay_step
 BN_DECAY_RATE = FLAGS.bn_decay_rate
@@ -262,7 +263,7 @@ def train_one_epoch(EPOCH_CNT):
                 log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
                 stat_dict[key] = 0
 
-def evaluate_one_epoch(EPOCH_CNT):
+def evaluate_one_epoch(EPOCH_CNT,max_metrics_dict,diff_metrics_dict):
     stat_dict = {} # collect statistics
     ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
@@ -309,11 +310,23 @@ def evaluate_one_epoch(EPOCH_CNT):
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
 
+
+    for key in metrics_dict:
+        # if key not in max_metrics_dict:
+        if key not in max_metrics_dict or metrics_dict[key] > max_metrics_dict[key]:
+            max_metrics_dict[key] = metrics_dict[key]
+        
+        # compute the difference between the current metrics and the max metrics
+        diff_metrics_dict[key] = max_metrics_dict[key] - metrics_dict[key]
+        
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
+        log_string('max %s: %f'%(key, max_metrics_dict[key]))
+        log_string('diff %s: %f'%(key, diff_metrics_dict[key]))
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
 
 
-def train_one_stage(start_epoch=start_epoch, stage=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], stage_idx=0, max_epoch=100):
+def train_one_stage(start_epoch=start_epoch, stage=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], stage_idx=0, max_epoch=100,max_metrics_dict={},diff_metrics_dict={}):
     '''
     Args:
         start_epoch: int, the epoch to start training
@@ -325,7 +338,7 @@ def train_one_stage(start_epoch=start_epoch, stage=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 
     # reset the batchnorm decay in a stage by defining a new scheduler
     bnm_scheduler = BNMomentumScheduler(net, bn_lambda=bn_lbmd, last_epoch=start_epoch-1)
-
+    
     for epoch in range(start_epoch, max_epoch):
         EPOCH_CNT = epoch
         log_string('**** STAGE %01d, EPOCH %03d ****' % (stage_idx, epoch))
@@ -337,7 +350,7 @@ def train_one_stage(start_epoch=start_epoch, stage=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9
         np.random.seed(SEED)
         train_one_epoch(EPOCH_CNT)
         if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
-            loss = evaluate_one_epoch(EPOCH_CNT)
+            loss = evaluate_one_epoch(EPOCH_CNT,max_metrics_dict,diff_metrics_dict)
         # Save checkpoint
         save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
                     'optimizer_state_dict': optimizer.state_dict(),
@@ -357,6 +370,8 @@ def train_all_stages():
 
     test_class = DATASET_CONFIG.CIL_stages[0]
     memory_bank = None
+    max_metrics_dict = {}
+    diff_metrics_dict = {}
     for idx, stage in enumerate(DATASET_CONFIG.CIL_stages):
         print(f'Training stage {idx}, novel classes: {stage}')
         # update CIL stage for the dataset
@@ -365,7 +380,7 @@ def train_all_stages():
         if idx > 0:
             test_class += stage
         TEST_DATASET.update_CIL_stage_test(test_class)
-        train_one_stage(start_epoch, stage, idx, max_epochs[idx])
+        train_one_stage(start_epoch, stage, idx, max_epochs[idx],max_metrics_dict,diff_metrics_dict)
 
         # for the memory bank, initialize it if it is the first stage
         if idx == 0:

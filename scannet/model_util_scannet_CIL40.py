@@ -14,32 +14,32 @@ from box_util import get_3d_box
 
 class ScannetDatasetConfig(object):
     def __init__(self):
-        self.num_class = 40
+        self.num_class = 35
         self.num_heading_bin = 1
-        self.num_size_cluster = 40
+        self.num_size_cluster = 35
 
         # CIL related settings
         # self.CIL_stages = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13], [14, 15], [16, 17]] # 14-2-2
         # self.CIL_stages = [[0,1,2,5,7,8,9,10,11,12,13,15,16,17], [3, 4], [6, 14]] # 14-2-2 SDCoT order (alphabetical)
         # self.CIL_stages = [[0,1,2], [3, 4, 5], [6, 7, 8], [9, 10, 11]] # 3-3-3-3 for debugging
-        self.CIL_stages=[[0,1,2,3,4,5,6,7,8,9,10],[11,12,13,14,15,16,17,18,19],
-                        [20,21,22,23,24,25,26,27,28,29,30],[31,32,33,34,35,36,37,38,39]]#10-10-10-10
+        self.CIL_stages=[[0,1,2,3,4,5,6],[7,8,9,10,11,12,13],[14,15,16,17,18,19,20],
+                        [21,22,23,24,25,26,27],[28,29,30,31,32,33,34]]#7-7-7-7-7
 
         self.CIL_stages_str = self.get_CIL_stages_str()
 
-        self.train_num_obj_by_cls = [6721, 4357, 2026, 1985, 1554, 1427, 1271, 1255, 1031, 928, 745, 661, 657, 614, 551, 486, 481, 406, 390, 386, 364, 307, 300, 292, 279, 253, 251, 216, 201, 190, 186, 177, 170, 116, 113, 52, 39, 32, 22] # TODO correct the order (this is alphabetical)
+        self.train_num_obj_by_cls = [4357, 2026, 1985, 1554, 1427, 1271, 928, 745, 661, 657, 551, 486, 481, 406, 390, 386, 364, 307, 300, 292, 279, 253, 251, 216, 201, 190, 186, 177, 170, 116, 113, 52, 39, 32, 22] # TODO correct the order (this is alphabetical)
 
-        self.type2class = {'other prop':0, 'wall':1, 'chair':2, 'door':3, 'other furniture':4, 'books':5, 
-                           'cabinet':6, 'table':7, 'floor':8, 'other structure':9, 'window':10, 'pillow':11, 
-                           'picture':12, 'box':13, 'ceiling':14, 'desk':15, 'shelves':16, 'towel':17, 'sofa':18, 
-                           'sink':19, 'clothes':20, 'lamp':21, 'bed':22, 'bookshelf':23, 'curtain':24, 'mirror':25, 
-                           'bag':26, 'whiteboard':27, 'counter':28, 'toilet':29, 'nightstand':30, 'refrigerator':31, 
-                           'television':32, 'dresser':33, 'shower curtain':34, 'bathtub':35, 'paper':36, 'person':37, 
-                           'floor mat':38, 'blinds':39}
+        self.type2class = {'chair':0, 'door':1, 'other furniture':2, 'books':3, 
+                            'cabinet':4, 'table':5, 'window':6, 'pillow':7, 
+                            'picture':8, 'box':9, 'desk':10, 'shelves':11, 'towel':12, 'sofa':13, 
+                            'sink':14, 'clothes':15, 'lamp':16, 'bed':17, 'bookshelf':18, 'curtain':19, 'mirror':20, 
+                            'bag':21, 'whiteboard':22, 'counter':23, 'toilet':24, 'nightstand':25, 'refrigerator':26, 
+                            'television':27, 'dresser':28, 'shower curtain':29, 'bathtub':30, 'paper':31, 'person':32, 
+                            'floor mat':33, 'blinds':34}
         self.class2type = {self.type2class[t]:t for t in self.type2class}
-        self.nyu40ids = np.array([40, 1, 5, 8, 39, 23, 3, 7, 2, 38, 9, 18, 11, 29, 22, 14, 15, 27, 6, 34, 21, 35, 4, 10, 16, 19, 37, 30, 12, 33, 32, 24, 25, 17, 28, 36, 26, 31, 20, 13])
+        self.nyu40ids = np.array([ 5, 8, 39, 23, 3, 7,  9, 18, 11, 29, 14, 15, 27, 6, 34, 21, 35, 4, 10, 16, 19, 37, 30, 12, 33, 32, 24, 25, 17, 28, 36, 26, 31, 20, 13])
         self.nyu40id2class = {nyu40id: i for i,nyu40id in enumerate(list(self.nyu40ids))}
-        self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'/home/zhongyao/wufang/votenet/scannet/meta_data/mean40.npz'))['arr_0']
+        self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'/home/zhongyao/wufang/votenet/scannet/meta_data/mean35.npz'))['arr_0']
         self.type_mean_size = {}
         for i in range(self.num_size_cluster):
             self.type_mean_size[self.class2type[i]] = self.mean_size_arr[i,:]

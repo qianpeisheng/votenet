@@ -25,7 +25,7 @@ MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
 # STAGE_0_FOR_14_2_2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
-ALL_CLASSES = list(range(40)) # for the test set
+ALL_CLASSES = list(range(35)) # for the test set
 
 class ScannetDetectionDataset(Dataset):
 
@@ -103,6 +103,9 @@ class ScannetDetectionDataset(Dataset):
         semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
         instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
 
+        mask=np.in1d(instance_bboxes[:,-1], DC.nyu40ids)
+        instance_bboxes = instance_bboxes[mask,:]
+        
         classes_of_instances = [DC.nyu40id2class[x] for x in instance_bboxes[:,-1]]
         # the first mask is the one that filters the objects that are not in the current stage
         mask_novel = [x in self.CIL_stage for x in classes_of_instances]
@@ -243,6 +246,8 @@ class ScannetDetectionDataset(Dataset):
         self.scan_names = [sname for sname in self.scan_names if sname in self.all_scan_names]
         for scan_name in self.scan_names:
             instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
+            mask=np.in1d(instance_bboxes[:,-1], DC.nyu40ids)
+            instance_bboxes = instance_bboxes[mask,:]
             classes_of_instances = [DC.nyu40id2class[x] for x in instance_bboxes[:,-1]]
             if any([x in self.CIL_stage for x in classes_of_instances]):
                 new_scan_names.append(scan_name)
