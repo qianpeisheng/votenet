@@ -17,9 +17,9 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import pc_util
-from model_util_scannet_CIL import rotate_aligned_boxes
+from scannet.model_util_scannet_CIL_37 import rotate_aligned_boxes
 
-from model_util_scannet_CIL import ScannetDatasetConfig
+from scannet.model_util_scannet_CIL_37 import ScannetDatasetConfig
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
@@ -213,17 +213,17 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['pcl_color'] = pcl_color
         return ret_dict
 
-    def update_CIL_stage(self, CIL_stage, memory_bank):
+    def update_CIL_stage(self, CIL_stage, memory_bank, duplicate_memory_bank):
         self.CIL_stage = CIL_stage
         self.memory_bank = memory_bank
-        self.keep_scene_at_stage()
+        self.keep_scene_at_stage(duplicate_memory_bank)
 
     def update_CIL_stage_test(self, CIL_stage):
         # just update the CIL_stage without filtering the scenes
         # i.e., keep all the scenes but use only labels within the CIL_stage
         self.CIL_stage = CIL_stage
 
-    def keep_scene_at_stage(self):
+    def keep_scene_at_stage(self, duplicate_memory_bank = 1):
         ''' Keep only the scenes that are in the current stage
             For each scene, check if the scene contains objects belonging to self.CIL_stage
 
@@ -244,8 +244,13 @@ class ScannetDetectionDataset(Dataset):
                 new_scan_names.append(scan_name)
 
         if self.memory_bank is not None:
-            new_scan_names.extend(self.memory_bank.scene_memory_bank)
-            new_scan_names = list(set(new_scan_names))
+            if duplicate_memory_bank == 1:
+                new_scan_names.extend(self.memory_bank.scene_memory_bank)
+                new_scan_names = list(set(new_scan_names))
+            else:
+                # extend new_scan_names with the scenes in the memory bank for duplicate_memory_bank times
+                new_scan_names.extend(self.memory_bank.scene_memory_bank * duplicate_memory_bank)
+                # this is an attempt to balance the number of scenes in the memory bank and the number of scenes in the training set
 
         self.scan_names = new_scan_names
         print('Stage Update: kept {} scans out of {}'.format(len(self.scan_names), num_scans))

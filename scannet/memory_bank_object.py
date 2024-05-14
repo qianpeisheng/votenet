@@ -17,9 +17,56 @@ import sys
 import numpy as np
 import random
 from PC_object import PC_object
-from scannet.model_util_scannet_CIL_37 import ScannetDatasetConfig
+from model_util_scannet_CIL_37 import ScannetDatasetConfig
+import pickle
 DC = ScannetDatasetConfig()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_object_point_cloud(mesh_vertices, object_center, object_size):
+    '''
+    Get the point cloud of an object given the mesh vertices of the scene, the object center and the object size.
+    '''
+    # mesh_vertices is a numpy array of shape (n, 3), where n is the number of vertices in the mesh.
+    # object_center is a numpy array of shape (3,) representing the center of the object.
+    # object_size is a numpy array of shape (3,) representing the size of the object.
+    # object_point_cloud is an numpy array of shape (n, 3), where n is the number of points within the bounding box.
+    # object_point_cloud = np.array([point for point in mesh_vertices if np.abs(point[0] - object_center[0]) < object_size[0] / 2 and np.abs(point[1] - object_center[1]) < object_size[1] / 2 and np.abs(point[2] - object_center[2]) < object_size[2] / 2])
+    object_point_cloud = np.array([point for point in mesh_vertices if np.abs(point[0] - object_center[0]) < object_size[0] / 2 and np.abs(point[1] - object_center[1]) < object_size[1] / 2 and np.abs(point[2] - object_center[2]) < object_size[2] / 2])
+    return object_point_cloud
+
+def create_and_save_object_reservoir(load_path, save_path):
+    '''
+    Loop through all scannet training files, get the object label, bounding box and the point cloud of the object.
+    Save them to a file.
+    '''
+
+    all_scan_names = [f.split('_bbox')[0] for f in os.listdir(load_path) if f.endswith('_bbox.npy')]
+    all_scan_names = [scan_name.split('_bbox')[0] for scan_name in all_scan_names]
+    object_reservoir = []
+    for scan_name in all_scan_names:
+        print(f'Processing {scan_name}')
+        instance_bboxes = np.load(os.path.join(load_path, scan_name) + '_bbox.npy')
+        # an instance bbox is [center_x, center_y, center_z, length, width, height, class_id]
+        mesh_vertices = np.load(os.path.join(load_path, scan_name) + '_vert.npy')
+        for idx, instance_bbox in enumerate(instance_bboxes):
+            print(f'Processing object {idx}')
+            try:
+                object_class = DC.nyu40id2class[instance_bbox[-1]]
+            except KeyError:
+                # wall, ceiling and floor are excluded because they do not have instance labels. ---- They are not objects.
+                continue
+            object_dict = {'scene_name': scan_name, 'object_id': idx, 'object_class': object_class}
+            object_center = instance_bbox[:3]
+            object_size = instance_bbox[3:6]
+            # objecct_point_cloud is an numpy array of shape (n, 3), where n is the number of points within the bounding box.
+            object_point_cloud = get_object_point_cloud(mesh_vertices, object_center, object_size)
+            object_dict['object_point_cloud'] = object_point_cloud
+            object_reservoir.append(object_dict)
+
+    # save the object_reservoir to a .pth file
+    with open(os.path.join(save_path, 'object_reservoir.pth'), 'wb') as f:
+        pickle.dump(object_reservoir, f)
+    print('Object reservoir is saved to object_reservoir.pth')
 
 class Memory_bank():
     def __init__(self, total_budget, dataset) -> None:
@@ -173,7 +220,5 @@ class Memory_bank():
 
 if __name__=='__main__':
 
-    # set_base_novel_scannet(num_base=9, num_novel=9)
-    # memory_bank = Memory_bank(total_budget=100)
-    # new_dict = set_true_values_in_sublists(dictionary=memory_bank.memory_bank, total_true= 200)
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
+    create_and_save_object_reservoir('scannet_train_detection_data_40', '.')

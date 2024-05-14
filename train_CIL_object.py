@@ -139,7 +139,7 @@ elif FLAGS.dataset == 'scannet':
     sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
     from scannet_detection_dataset_CIL_stage import ScannetDetectionDataset, MAX_NUM_OBJ
     from model_util_scannet_CIL import ScannetDatasetConfig
-    from memory_bank import Memory_bank
+    from memory_bank_object import Memory_bank
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
         augment=True,
