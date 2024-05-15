@@ -21,6 +21,8 @@ from model_util_scannet_CIL_37 import ScannetDatasetConfig
 import pickle
 DC = ScannetDatasetConfig()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SEED = 42
+random.seed(SEED)
 
 def get_object_point_cloud(mesh_vertices, object_center, object_size):
     '''
@@ -68,157 +70,140 @@ def create_and_save_object_reservoir(load_path, save_path):
         pickle.dump(object_reservoir, f)
     print('Object reservoir is saved to object_reservoir.pth')
 
-class Memory_bank():
-    def __init__(self, total_budget, dataset) -> None:
+class Memory_Bank_Object():
+    def __init__(self, total_budget, load_path) -> None:
 
         # total budget is the total number of objects in the memory bank
         self.total_budget = total_budget
 
+        # load_path is the path to the object_reservoir.pth file
+        self.load_path = load_path
+        self.__load_object_reservoir__(load_path)
+
         # TRAIN_NUM_OBJECTS_BY_CLASS is a list of the number of objects in each class, e.g., [100, 200, 300, 400, 500]
         self.TRAIN_NUM_OBJECTS_BY_CLASS = DC.train_num_obj_by_cls
 
-        self.all_scan_names = dataset.all_scan_names
-        self.scan_names = list(set(self.all_scan_names))
-        self.all_base_classes = [] # initialization. This will be updated in incremental learning stages.
+        # create a one_hot mask for the objects in the memory bank
+        self.object_reservoir_length = len(self.object_reservoir)
+        self.one_hot_mask = np.zeros(self.object_reservoir_length)
 
-        # all objects
-        self.pc_objects = [] # to be filled-in in the future
+        self.classes = []
 
-        print(f'An EMPTY memory bank is created with total budget: {self.total_budget}')
+    def __load_object_reservoir__(self, load_path):
+        with open(load_path, 'rb') as f:
+            object_reservoir = pickle.load(f)
+        self.object_reservoir = object_reservoir
 
-        self.object_memory_bank = [] # can be optimized using a multi indexed dictionary
-        self.scene_memory_bank = []
+    def __get_budget__random__(self, classes):
+        '''
+        Get the number of objects to be added to the memory bank for each class.
+        Args:
+            classes: a list of classes. Each class is the class of the objects to be added to the memory bank.
+        '''
+        new_class_all_class_ratio = len(classes) / len(self.classes)
+        budget = int(self.total_budget * new_class_all_class_ratio)
+        return budget
+    
+    def update_memory(self, budget, classes, criteria):
+        '''
+        Update the memory bank by adding or removing objects given the budget, the classes and the criteria.
+        '''
+        self.classes.extend(classes)
+        if budget == -1:
+            budget = self.__get_budget__random__(classes)
+        print(f'Adding {budget} objects to the memory bank.')
+        self.__remove_objects__(budget, classes, criteria)
+        self.__add_objects__(budget, classes, criteria)
 
-        self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data') # the memory bank is for the train set only.
+        # mask self.object_reservoir with self.one_hot_mask
+        self.masked_object_reservoir = [obj for obj, mask in zip(self.object_reservoir, self.one_hot_mask) if mask == 1]
 
-        self.__fill_in_pc_objects__()
+    def __add_objects__(self, budget, classes, criteria):
+        '''
+        Add objects to the memory bank given the budget, the classes and the criteria.
+        Args:
+            budget: a list of numbers. Each number is the number of objects to be added to the memory bank for each class.
+            classes: a list of classes. Each class is the class of the objects to be added to the memory bank.
+            criteria: a string. The criteria to add objects to the memory bank. Supporting 'random' only for now.
+        The length of budget and classes should be the same.
+        '''
+        if criteria == 'random':
+            if isinstance(budget, list):
+                for _budget, _class in zip(budget, classes):
+                    # get the indexes of the objects in the object_reservoir that belong to each classes.
+                    # an element in the object_reservoir is a dictionary with keys 'scene_name', 'object_id', 'object_class' and 'object_point_cloud'.
+                    class_indexes = [idx for idx, obj in enumerate(self.object_reservoir) if obj['object_class'] == _class
+                                        and self.one_hot_mask[idx] == 0]
+                    # randomly select _budget objects from the class_indexes.
+                    selected_indexes = random.sample(class_indexes, _budget)
+                    # set the one_hot_mask to 1 for the selected indexes.
+                    self.one_hot_mask[selected_indexes] = 1
+            elif isinstance(budget, int): # the budget is for all classes
+                # get the indexes of the objects in the object_reservoir that belong to any of the classes.
+                class_indexes = [idx for idx, obj in enumerate(self.object_reservoir) if obj['object_class'] in classes
+                                    and self.one_hot_mask[idx] == 0]
+                # randomly select budget objects from the class_indexes.
+                selected_indexes = random.sample(class_indexes, budget)
+                # set the one_hot_mask to 1 for the selected indexes.
+                self.one_hot_mask[selected_indexes] = 1
+            else:
+                raise ValueError('Undefined type of budget.')
+        else:
+            raise ValueError('Undefined criteria for adding objects.')
+                
+    def __remove_objects__(self, budget, classes, criteria):
+        '''
+        Remove objects from the memory bank given the budget, the classes and the criteria.
+        Args:
+            budget: the number of objects to be added to the memory bank.
+            classes: the classes of the objects to be added to the memory bank. Unused for now.
+            criteria: the criteria to remove objects from the memory bank. Supporting 'random' only for now.
+        '''
+        # calculate the size of the memory bank currently, which is the number of 1s in the one_hot_mask.
+        current_memory_bank_size = np.sum(self.one_hot_mask)
+        # if the number of objects in the memory bank is less than or equal to self.total_budget - budget, return.
+        if current_memory_bank_size <= self.total_budget - budget:
+            return True
+        else:
+            # calculate how many objects need to be removed.
+            num_objects_to_remove = int(current_memory_bank_size - (self.total_budget - budget))
+            # remove objects in the memory bank according to the criteria.
+            # so that the number of objects in the memory bank is equal to self.total_budget - budget.
+            if criteria == 'random':
+                # randomly remove num_objects_to_remove objects from the memory bank.
+                indices = np.where(self.one_hot_mask == 1)[0]
+                indices_to_remove = random.sample(list(indices), num_objects_to_remove)
+                self.one_hot_mask[indices_to_remove] = 0
+            else:
+                # throw an error if the criteria is not 'random'.
+                raise ValueError('Undefined criteria for removing objects.')
 
-    def __fill_in_pc_objects__(self):
-        # fill in the pc_objects list
-        for index, scan_name in enumerate(self.scan_names):
-            if index % 100 == 0:
-                print('Memory bank initialization: {0}/{1} scenes'.format(index, len(self.scan_names)))
-            instance_bboxes = self._get_bbox_list(scan_name, self.data_path)
-            for idx, instance_bbox in enumerate(instance_bboxes):
-                object_dict = {'scene_name': scan_name, 'object_id': idx, 'object_class': DC.nyu40id2class[instance_bbox[-1]]}
-                pc_object = PC_object(object_dict)
-                self.pc_objects.append(pc_object)
+            return False
 
-    def _get_bbox_list(self, scan_name, scan_data_path):
-        instance_bboxes = np.load(os.path.join(scan_data_path, scan_name) + '_bbox.npy')
-        return instance_bboxes
-
-    def set_random_prob(self):
-        # need to set in every stage because the total number of classes and objects changes.
-        total_num_objects = sum([self.TRAIN_NUM_OBJECTS_BY_CLASS[i] for i in self.all_base_classes])
-        self.random_prob = self.total_budget / total_num_objects
-
-    def add_pc_object_to_memory_bank(self, pc_object):
-        # add the pc_object to the memory bank
-        pc_object.add_to_memory_bank()
-        self.object_memory_bank.append(pc_object)
-
-    def remove_pc_object_from_memory_bank(self, pc_object):
-        # remove the pc_object from the memory bank
-        pc_object.remove_from_memory_bank()
-
-    def update_memory_bank_for_pc_objects(self):
-        self.object_memory_bank = [pc_object for pc_object in self.pc_objects if pc_object.is_in_memory_bank]
-
-    def update_memory_bank_scene_by_pc_objects(self):
-        # update the scene memory bank based on the pc_objects
-        # We do not update the scene memory bank when adding or removing objects from the object memory bank because
-        # that would be less efficient.
-        # Instead, we update the scene memory bank only when needed.
-        # Note that this function redefines the scene memory bank instead of updating it.
-        self.scene_memory_bank = list(set([pc_object.scene_name for pc_object in self.object_memory_bank]))
-
-    def randomly_popolate(self, increment_classes):
-        # This is the key step to generate the memory bank randomly.
-        # First, get a sublist of the pc_objects, inlucde only the objects in the increment_classes.
-        # Next, shuffle the list and select the first n objects, where n = self.total_budget * len(increment_classes) / len(self.all_base_classes)
-        # Finally, remove n objects from the object_memory_bank and add the n objects to the object_memory_bank.
-
-        # update self.all_base_classes
-        self.all_base_classes += increment_classes
-        current_base_cls_pc_objects = [pc_object for pc_object in self.pc_objects if pc_object.object_class in increment_classes]
-
-        random.shuffle(current_base_cls_pc_objects)
-        # print(increment_classes, self.all_base_classes)
-        current_budget = int(self.total_budget * len(increment_classes) / len(self.all_base_classes))
-
-        # if the current budget is larger than the number of objects in the current_base_cls_pc_objects, set the current budget to the number of objects.
-        current_budget = min(current_budget, len(current_base_cls_pc_objects))
-        print(f'{current_budget} objects of classes {increment_classes} is added to the memory bank.')
-
-        if len(self.object_memory_bank) > 0:
-            # shuffle self.object_memory_bank and select the first current_budget objects to delete
-            random.shuffle(self.object_memory_bank)
-            while len(self.object_memory_bank) > self.total_budget - current_budget:
-                self.remove_pc_object_from_memory_bank(self.object_memory_bank[0])
-                self.object_memory_bank.pop(0)
-        for i in range(current_budget):
-            self.add_pc_object_to_memory_bank(current_base_cls_pc_objects[i])
-        # update the object memory bank list
-        self.update_memory_bank_for_pc_objects()
-        self.update_memory_bank_scene_by_pc_objects()
-
-        print(f'Current memory bank size is {len(self.object_memory_bank)}')
-        # assert len(self.object_memory_bank) == self.total_budget, f'The number of objects in the memory bank {len(self.object_memory_bank)} is not equal to the total budget {self.total_budget}.'
-
-    def get_current_budget(self):
-        num_trues = 0
-        for pc_object in self.pc_objects:
-            if pc_object.is_in_memory_bank:
-                num_trues += 1
-        return num_trues
-
-    def get_all_scan_names_with_True_values(self):
-        # return all scene names that contain objects in the memory bank
-        return self.scene_memory_bank
 
     def __getitem__(self, index):
-        # TODO should we return the object or the scene?
-        return self.pc_objects[index]
+        # return the inndex of the index-th 1 in the one_hot_mask.
+        return self.masked_object_reservoir[index]
 
     def __len__(self):
-        return len(self.pc_objects)
+        return int(np.sum(self.one_hot_mask))
     # note this includes all objects, not just the objects in the memory bank.
 
     def save_memory_bank(self, save_path, stage_idx):
-        # save the memory bank to 2 csv files, one for the object memory bank and one for the scene memory bank.
-        object_memory_bank_file = os.path.join(save_path, f'Stage_{stage_idx}_object_memory_bank.csv')
-        scene_memory_bank_file = os.path.join(save_path, f'Stage_{stage_idx}_scene_memory_bank.csv')
-
-        with open(object_memory_bank_file, 'w') as f:
-            f.write('scene_name,object_id,object_class\n')
-            for pc_object in self.object_memory_bank:
-                f.write(f'{pc_object.scene_name},{pc_object.object_id},{pc_object.object_class}\n')
-
-        with open(scene_memory_bank_file, 'w') as f:
-            for scene_name in self.scene_memory_bank:
-                f.write(f'{scene_name}\n')
+        '''
+        Save one_hot_mask to npy file.
+        '''
+        np.save(os.path.join(save_path, f'one_hot_mask_{stage_idx}.npy'), self.one_hot_mask)
 
     def load_memory_bank(self, load_path):
-        # load the memory bank from 2 csv files, one for the object memory bank and one for the scene memory bank.
-        object_memory_bank_file = os.path.join(load_path, 'object_memory_bank.csv')
-        scene_memory_bank_file = os.path.join(load_path, 'scene_memory_bank.csv')
-
-        with open(object_memory_bank_file, 'r') as f:
-            lines = f.readlines()
-            for line in lines[1:]:
-                line = line.strip().split(',')
-                object_dict = {'scene_name': line[0], 'object_id': int(line[1]), 'object_class': int(line[2])}
-                pc_object = PC_object(object_dict)
-                self.pc_objects.append(pc_object)
-                self.object_memory_bank.append(pc_object)
-
-        with open(scene_memory_bank_file, 'r') as f:
-            lines = f.readlines()
-            for line in lines:
-                self.scene_memory_bank.append(line.strip())
+        '''
+        Load one_hot_mask from npy file.
+        '''
+        return np.load(load_path)
 
 if __name__=='__main__':
+    pass
 
     # import pdb; pdb.set_trace()
-    create_and_save_object_reservoir('scannet_train_detection_data_40', '.')
+    # create_and_save_object_reservoir('scannet_train_detection_data_40', '.')
+    # memory_bank = Memory_Bank_Object(100, '.')
