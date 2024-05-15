@@ -103,7 +103,7 @@ class Memory_Bank_Object():
         new_class_all_class_ratio = len(classes) / len(self.classes)
         budget = int(self.total_budget * new_class_all_class_ratio)
         return budget
-    
+
     def update_memory(self, budget, classes, criteria):
         '''
         Update the memory bank by adding or removing objects given the budget, the classes and the criteria.
@@ -150,7 +150,7 @@ class Memory_Bank_Object():
                 raise ValueError('Undefined type of budget.')
         else:
             raise ValueError('Undefined criteria for adding objects.')
-                
+
     def __remove_objects__(self, budget, classes, criteria):
         '''
         Remove objects from the memory bank given the budget, the classes and the criteria.
@@ -186,7 +186,7 @@ class Memory_Bank_Object():
         return self.masked_object_reservoir[index]
 
     def __len__(self):
-        return int(np.sum(self.one_hot_mask))
+        return int(np.sum(self.one_hot_mask)) # this is the same as the length of self.masked_object_reservoir
     # note this includes all objects, not just the objects in the memory bank.
 
     def save_memory_bank(self, save_path, stage_idx):

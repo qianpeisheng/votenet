@@ -67,7 +67,9 @@ parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 # CIL related arguments
 parser.add_argument('--total_budget', type=int, default=1000, help='Total budget for the memory bank, default to 1000')
 parser.add_argument('--seed', type=int, default=42, help='Random seed, default to 42')
-parser.add_argument('--duplicate_memory_bank', type=int, default=2, help='Duplicate the memory bank for the next stage')
+parser.add_argument('--object_reservoir_path', default='/home/peisheng/votenet/scannet/object_reservoir.pth', help='Path to the object reservoir')
+parser.add_argument('--eval_freq', type=int, default=10, help='Evaluation frequency, default to 10')
+parser.add_argument('--debug', action='store_true', help='Debug mode, only train for 1 epoch')
 
 FLAGS = parser.parse_args()
 SEED = FLAGS.seed
@@ -75,8 +77,11 @@ SEED = FLAGS.seed
 BATCH_SIZE = FLAGS.batch_size
 NUM_POINT = FLAGS.num_point
 # MAX_EPOCH = FLAGS.max_epoch
-max_epochs = [150, 50, 50]
-# max_epochs = [1, 1, 1] # for debugging
+if FLAGS.debug:
+    max_epochs = [1, 1, 1, 1, 1] # for debugging
+else:
+    max_epochs = [100, 100, 100, 100, 100]
+
 
 BASE_LEARNING_RATE = FLAGS.learning_rate
 BN_DECAY_STEP = FLAGS.bn_decay_step
@@ -137,13 +142,14 @@ if FLAGS.dataset == 'sunrgbd':
         use_v1=(not FLAGS.use_sunrgbd_v2))
 elif FLAGS.dataset == 'scannet':
     sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
-    from scannet_detection_dataset_CIL_stage import ScannetDetectionDataset, MAX_NUM_OBJ
-    from model_util_scannet_CIL import ScannetDatasetConfig
-    from memory_bank_object import Memory_bank
+    from scannet_detection_dataset_CIL_object import ScannetDetectionDataset, MAX_NUM_OBJ
+    from model_util_scannet_CIL_35 import ScannetDatasetConfig
+    from memory_bank_object import Memory_Bank_Object
+
+    memory_bank = Memory_Bank_Object(total_budget=FLAGS.total_budget, load_path=FLAGS.object_reservoir_path)
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-        augment=True,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+        augment=True, use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), memory_bank=memory_bank)
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
@@ -152,7 +158,7 @@ else:
     exit(-1)
 print(len(TRAIN_DATASET), len(TEST_DATASET))
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE,
-    shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
+    shuffle=True, num_workers=BATCH_SIZE, worker_init_fn=my_worker_init_fn)
 TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
     shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
 print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
@@ -316,7 +322,7 @@ def evaluate_one_epoch(EPOCH_CNT):
     return mean_loss
 
 
-def train_one_stage(start_epoch=start_epoch, stage=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], stage_idx=0, max_epoch=100):
+def train_one_stage(start_epoch=start_epoch, stage_idx=0, max_epoch=100):
     '''
     Args:
         start_epoch: int, the epoch to start training
@@ -339,7 +345,8 @@ def train_one_stage(start_epoch=start_epoch, stage=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed(SEED)
         train_one_epoch(EPOCH_CNT)
-        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+        if EPOCH_CNT == 0 or EPOCH_CNT % FLAGS.eval_freq == 0 or EPOCH_CNT == max_epoch-1:
+        # Eval every FLAGS.eval_freq epochs or at epoch 0
             loss = evaluate_one_epoch(EPOCH_CNT)
         # Save checkpoint
         save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
@@ -359,25 +366,19 @@ def train_all_stages():
         log_string(stage_str)
 
     test_class = DATASET_CONFIG.CIL_stages[0]
-    memory_bank = None
     for idx, stage in enumerate(DATASET_CONFIG.CIL_stages):
         print(f'Training stage {idx}, novel classes: {stage}')
         # update CIL stage for the dataset
-        TRAIN_DATASET.update_CIL_stage(CIL_stage=stage, memory_bank=memory_bank, duplicate_memory_bank=FLAGS.duplicate_memory_bank)
+        TRAIN_DATASET.update_CIL_stage(CIL_stage=stage)
         # also update tese dataset, but use all classes up to the current stage
         if idx > 0:
             test_class += stage
         TEST_DATASET.update_CIL_stage_test(CIL_stage=test_class)
-        train_one_stage(start_epoch, stage, idx, max_epochs[idx])
+        train_one_stage(start_epoch=start_epoch, stage_idx=idx, max_epoch=max_epochs[idx])
 
-        # for the memory bank, initialize it if it is the first stage
-        if idx == 0:
-            # initialize memory bank
-            memory_bank = Memory_bank(total_budget=FLAGS.total_budget, dataset=TRAIN_DATASET)
         if idx < len(DATASET_CONFIG.CIL_stages)-1: # not the last stage
-            # update memory bank using the previous stage
-            # remove some old objects and add some new objects
-            memory_bank.randomly_popolate(increment_classes=stage)
+            memory_bank.update_memory(budget=-1, classes=stage, criteria='random')
+            # budget -1 means the the budget is calculated by the ratio of current stage classes to the total classes so far.
 
         # save the memory bank
         memory_bank.save_memory_bank(save_path=LOG_DIR, stage_idx=idx)
