@@ -17,7 +17,7 @@ import sys
 import numpy as np
 import random
 from PC_object import PC_object
-from model_util_scannet_CIL_37 import ScannetDatasetConfig
+from model_util_scannet_CIL_35 import ScannetDatasetConfig
 import pickle
 DC = ScannetDatasetConfig()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,11 +53,13 @@ def create_and_save_object_reservoir(load_path, save_path):
         for idx, instance_bbox in enumerate(instance_bboxes):
             print(f'Processing object {idx}')
             try:
-                object_class = DC.nyu40id2class[instance_bbox[-1]]
+                nyu_id = int(instance_bbox[-1])
+                object_class = DC.nyu40id2class[nyu_id]
             except KeyError:
-                # wall, ceiling and floor are excluded because they do not have instance labels. ---- They are not objects.
+                # wall, ceiling and floor are excluded as they do not have instance labels. ---- They are not objects.
+                # otherprop, other structure are excluded because they cover a wide range of objects. ---- They cannot be classified into a single class (very low mAP).
                 continue
-            object_dict = {'scene_name': scan_name, 'object_id': idx, 'object_class': object_class}
+            object_dict = {'scene_name': scan_name, 'object_id': idx, 'object_class': object_class, 'nyu_id': nyu_id}
             object_center = instance_bbox[:3]
             object_size = instance_bbox[3:6]
             # objecct_point_cloud is an numpy array of shape (n, 3), where n is the number of points within the bounding box.
@@ -66,9 +68,10 @@ def create_and_save_object_reservoir(load_path, save_path):
             object_reservoir.append(object_dict)
 
     # save the object_reservoir to a .pth file
-    with open(os.path.join(save_path, 'object_reservoir.pth'), 'wb') as f:
+    save_file_name = 'object_reservoir_35.pth'
+    with open(os.path.join(save_path, save_file_name), 'wb') as f:
         pickle.dump(object_reservoir, f)
-    print('Object reservoir is saved to object_reservoir.pth')
+    print(f'Object reservoir is saved to {save_file_name}')
 
 class Memory_Bank_Object():
     def __init__(self, total_budget, load_path) -> None:
@@ -76,7 +79,7 @@ class Memory_Bank_Object():
         # total budget is the total number of objects in the memory bank
         self.total_budget = total_budget
 
-        # load_path is the path to the object_reservoir.pth file
+        # load_path is the path to the object_reservoir_35.pth file
         self.load_path = load_path
         self.__load_object_reservoir__(load_path)
 
@@ -202,8 +205,8 @@ class Memory_Bank_Object():
         return np.load(load_path)
 
 if __name__=='__main__':
-    pass
+    # pass
 
     # import pdb; pdb.set_trace()
-    # create_and_save_object_reservoir('scannet_train_detection_data_40', '.')
+    create_and_save_object_reservoir('scannet_train_detection_data_40', '.')
     # memory_bank = Memory_Bank_Object(100, '.')

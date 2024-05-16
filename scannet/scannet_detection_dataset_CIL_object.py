@@ -17,19 +17,19 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import pc_util
-from scannet.model_util_scannet_CIL_37 import rotate_aligned_boxes
+from scannet.model_util_scannet_CIL_35 import rotate_aligned_boxes
 
-from scannet.model_util_scannet_CIL_37 import ScannetDatasetConfig
+from scannet.model_util_scannet_CIL_35 import ScannetDatasetConfig
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
-ALL_CLASSES = list(range(37)) # for the test set
+ALL_CLASSES = list(range(35)) # for the test set
 
 class ScannetDetectionDataset(Dataset):
 
     def __init__(self, split_set='train', num_points=20000,
-        use_color=False, use_height=False, augment=False, CIL_stage=ALL_CLASSES, memory_bank=None):
+        use_color=False, use_height=False, augment=False, memory_bank=None):
         '''
         Args:
             split_set: str, option from ['train', 'val', 'test', 'all']
@@ -40,7 +40,8 @@ class ScannetDetectionDataset(Dataset):
             CIL_stage: list of int, which are class indexes for the current stage
         '''
         # CIL settings
-        self.CIL_stage = CIL_stage
+        # self.CIL_stage = CIL_stage
+        # self.current_stage_nyu_ids = [DC.nyu40ids[x] for x in self.CIL_stage]
         self.split_set = split_set # train, val, test, all
         self.memory_bank = memory_bank # a list of dictionaries, where each dict is an object {'scene_name': scan_name, 'object_id': idx, 'object_class': object_class, 'object_point_cloud': object_point_cloud}
 
@@ -78,8 +79,11 @@ class ScannetDetectionDataset(Dataset):
         self.fixed_insertion_number = 10 #  for debugging, also used in training
         self.fixed_object_index_to_insert = [0, 1] # for debugging, not used in training
         self.debug = False
+        self.short = False
 
     def __len__(self):
+        if self.short:
+            return 20
         return len(self.scan_names)
 
     def __getitem__(self, idx):
@@ -106,14 +110,8 @@ class ScannetDetectionDataset(Dataset):
         instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
 
         # filter the instance_bboxes: if its class not in the nyu40ids or not in the current stage, remove it
-        mask=np.in1d(instance_bboxes[:,-1], DC.nyu40ids)
+        mask=np.in1d(instance_bboxes[:,-1], self.current_stage_nyu_ids)
         instance_bboxes = instance_bboxes[mask,:]
-
-        classes_of_instances = [DC.nyu40id2class[int(x)] for x in instance_bboxes[:,-1]]
-        # the mask filters the objects that are not in the current stage
-        mask_novel = [x in self.CIL_stage for x in classes_of_instances]
-
-        instance_bboxes = instance_bboxes[mask_novel]
 
         if not self.use_color:
             point_cloud = mesh_vertices[:,0:3] # do not use color for now
@@ -216,7 +214,8 @@ class ScannetDetectionDataset(Dataset):
                 point_votes[ind, :] = center - x
                 point_votes_mask[ind] = 1.0
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
-
+        if 40 in instance_bboxes[:,-1]:
+            import pdb; pdb.set_trace()
         class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in instance_bboxes[:,-1]]
         # NOTE: set size class as semantic class. Consider use size2class.
         size_classes[0:instance_bboxes.shape[0]] = class_ind
@@ -243,11 +242,8 @@ class ScannetDetectionDataset(Dataset):
 
     def update_CIL_stage(self, CIL_stage):
         self.CIL_stage = CIL_stage
-
-    def update_CIL_stage_test(self, CIL_stage):
-        # just update the CIL_stage without filtering the scenes
-        # i.e., keep all the scenes but use only labels within the CIL_stage
-        self.CIL_stage = CIL_stage
+        self.current_stage_nyu_ids = [DC.nyu40ids[x] for x in self.CIL_stage]
+        print(f'{self.split_set} Updated CIL stage to Class Index {self.CIL_stage} NYU ID {self.current_stage_nyu_ids}')
 
 ############# Visualizaion ########
 

@@ -67,7 +67,7 @@ parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 # CIL related arguments
 parser.add_argument('--total_budget', type=int, default=1000, help='Total budget for the memory bank, default to 1000')
 parser.add_argument('--seed', type=int, default=42, help='Random seed, default to 42')
-parser.add_argument('--object_reservoir_path', default='/home/peisheng/votenet/scannet/object_reservoir.pth', help='Path to the object reservoir')
+parser.add_argument('--object_reservoir_path', default='/home/peisheng/votenet/scannet/object_reservoir_35.pth', help='Path to the object reservoir')
 parser.add_argument('--eval_freq', type=int, default=10, help='Evaluation frequency, default to 10')
 parser.add_argument('--debug', action='store_true', help='Debug mode, only train for 1 epoch')
 
@@ -157,8 +157,12 @@ else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
 print(len(TRAIN_DATASET), len(TEST_DATASET))
+if BATCH_SIZE == 1:
+    NUM_WORKERS = 0 # to debug
+else:
+    NUM_WORKERS = BATCH_SIZE
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE,
-    shuffle=True, num_workers=BATCH_SIZE, worker_init_fn=my_worker_init_fn)
+    shuffle=True, num_workers=NUM_WORKERS, worker_init_fn=my_worker_init_fn)
 TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
     shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
 print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
@@ -373,7 +377,7 @@ def train_all_stages():
         # also update tese dataset, but use all classes up to the current stage
         if idx > 0:
             test_class += stage
-        TEST_DATASET.update_CIL_stage_test(CIL_stage=test_class)
+        TEST_DATASET.update_CIL_stage(CIL_stage=test_class)
         train_one_stage(start_epoch=start_epoch, stage_idx=idx, max_epoch=max_epochs[idx])
 
         if idx < len(DATASET_CONFIG.CIL_stages)-1: # not the last stage
