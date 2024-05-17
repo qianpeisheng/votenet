@@ -70,6 +70,7 @@ parser.add_argument('--seed', type=int, default=42, help='Random seed, default t
 parser.add_argument('--object_reservoir_path', default='/home/peisheng/votenet/scannet/object_reservoir_35.pth', help='Path to the object reservoir')
 parser.add_argument('--eval_freq', type=int, default=10, help='Evaluation frequency, default to 10')
 parser.add_argument('--debug', action='store_true', help='Debug mode, only train for 1 epoch')
+parser.add_argument('--fixed_insertion_number', type=int, default=10, help='the number of objects to insert in each scene')
 
 FLAGS = parser.parse_args()
 SEED = FLAGS.seed
@@ -149,7 +150,7 @@ elif FLAGS.dataset == 'scannet':
     memory_bank = Memory_Bank_Object(total_budget=FLAGS.total_budget, load_path=FLAGS.object_reservoir_path)
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-        augment=True, use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), memory_bank=memory_bank)
+        augment=True, use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), memory_bank=memory_bank, fixed_insertion_number=FLAGS.fixed_insertion_number)
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))

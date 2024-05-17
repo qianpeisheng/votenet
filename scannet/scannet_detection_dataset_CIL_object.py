@@ -29,7 +29,7 @@ ALL_CLASSES = list(range(35)) # for the test set
 class ScannetDetectionDataset(Dataset):
 
     def __init__(self, split_set='train', num_points=20000,
-        use_color=False, use_height=False, augment=False, memory_bank=None):
+        use_color=False, use_height=False, augment=False, memory_bank=None, fixed_insertion_number=10):
         '''
         Args:
             split_set: str, option from ['train', 'val', 'test', 'all']
@@ -47,9 +47,9 @@ class ScannetDetectionDataset(Dataset):
 
         # we save train and val data in different folders
         if split_set=='train':
-            self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data_40')
+            self.data_path = '/' + os.path.join(*BASE_DIR.split('/')[:-1], '40_cls_data', 'scannet', 'scannet_train_detection_data_40')
         elif split_set=='val':
-            self.data_path = os.path.join(BASE_DIR, 'scannet_val_detection_data')
+            self.data_path = '/' + os.path.join(*BASE_DIR.split('/')[:-1], '40_cls_data', 'scannet', 'scannet_val_detection_data_40')
 
         all_scan_names = list(set([os.path.basename(x)[0:12] \
             for x in os.listdir(self.data_path) if x.startswith('scene')]))
@@ -76,7 +76,7 @@ class ScannetDetectionDataset(Dataset):
         self.use_height = use_height
         self.augment = augment
 
-        self.fixed_insertion_number = 10 #  for debugging, also used in training
+        self.fixed_insertion_number = fixed_insertion_number #  for debugging, also used in training
         self.fixed_object_index_to_insert = [0, 1] # for debugging, not used in training
         self.debug = False
         self.short = False
