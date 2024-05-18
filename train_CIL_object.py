@@ -71,9 +71,11 @@ parser.add_argument('--object_reservoir_path', default='/home/peisheng/votenet/s
 parser.add_argument('--eval_freq', type=int, default=10, help='Evaluation frequency, default to 10')
 parser.add_argument('--debug', action='store_true', help='Debug mode, only train for 1 epoch')
 parser.add_argument('--fixed_insertion_number', type=int, default=10, help='the number of objects to insert in each scene')
+parser.add_argument('--check_collision', action='store_true', help='Check collision when inserting objects')
 
 FLAGS = parser.parse_args()
 SEED = FLAGS.seed
+torch.manual_seed(SEED)
 # ------------------------------------------------------------------------- GLOBAL CONFIG BEG
 BATCH_SIZE = FLAGS.batch_size
 NUM_POINT = FLAGS.num_point
@@ -150,10 +152,11 @@ elif FLAGS.dataset == 'scannet':
     memory_bank = Memory_Bank_Object(total_budget=FLAGS.total_budget, load_path=FLAGS.object_reservoir_path)
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-        augment=True, use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), memory_bank=memory_bank, fixed_insertion_number=FLAGS.fixed_insertion_number)
+        augment=True, use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), memory_bank=memory_bank,
+        fixed_insertion_number=FLAGS.fixed_insertion_number, check_collision=FLAGS.check_collision, debug=FLAGS.debug)
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), debug=FLAGS.debug)
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)

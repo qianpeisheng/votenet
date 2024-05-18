@@ -20,6 +20,8 @@ import pc_util
 from scannet.model_util_scannet_CIL_35 import rotate_aligned_boxes
 
 from scannet.model_util_scannet_CIL_35 import ScannetDatasetConfig
+from box_util import get_3d_box, box2d_iou
+
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
@@ -29,7 +31,8 @@ ALL_CLASSES = list(range(35)) # for the test set
 class ScannetDetectionDataset(Dataset):
 
     def __init__(self, split_set='train', num_points=20000,
-        use_color=False, use_height=False, augment=False, memory_bank=None, fixed_insertion_number=10):
+        use_color=False, use_height=False, augment=False, memory_bank=None, fixed_insertion_number=10,
+        check_collision=True, debug=False):
         '''
         Args:
             split_set: str, option from ['train', 'val', 'test', 'all']
@@ -78,8 +81,21 @@ class ScannetDetectionDataset(Dataset):
 
         self.fixed_insertion_number = fixed_insertion_number #  for debugging, also used in training
         self.fixed_object_index_to_insert = [0, 1] # for debugging, not used in training
-        self.debug = False
-        self.short = False
+        self.debug = debug
+        self.short = debug
+
+    def check_collision(self, corner_bboxes, instance_bbox_to_insert, iou_threshold=0.25):
+        # for each instance bbox in the scene, check if it collides with the instance_bbox_to_insert
+        for corner_bbox in corner_bboxes:
+            # box1 =(xmin,ymin,xmax,ymax) converted from corner_box which contains 8 corners of the box
+            box1 = np.array([np.min(corner_bbox[:,0]), np.min(corner_bbox[:,1]), np.max(corner_bbox[:,0]), np.max(corner_bbox[:,1])])
+            # box2 = (xmin,ymin,xmax,ymax) converted from instance_bbox_to_insert which contains (cx,cy,cz,dx,dy,dz)
+            box2 = np.array([instance_bbox_to_insert[0]-instance_bbox_to_insert[3]/2, instance_bbox_to_insert[1]-instance_bbox_to_insert[4]/2, instance_bbox_to_insert[0]+instance_bbox_to_insert[3]/2, instance_bbox_to_insert[1]+instance_bbox_to_insert[4]/2])
+            box_2d_iou = box2d_iou(box1, box2)
+            # print(f'box_2d_iou {box_2d_iou*100:.4f}')
+            if box_2d_iou > iou_threshold:
+                return True
+        return False
 
     def __len__(self):
         if self.short:
@@ -125,36 +141,71 @@ class ScannetDetectionDataset(Dataset):
         if self.split_set == 'train' and len(self.memory_bank) > 0:
             # insert some objects from the memory bank
             if self.fixed_insertion_number > 0:
-                if self.debug:
-                    objects_to_insert_index = self.fixed_insertion_number
-                else:
-                    # randomly select self.fixed_insertion_number objects number of objects from the memory bank
-                    objects_to_insert_index = np.random.choice(len(self.memory_bank), self.fixed_insertion_number, replace=False)
+            #     if self.debug:
+            #         objects_to_insert_index = self.fixed_insertion_number
+            #     else:
+            #         # randomly select self.fixed_insertion_number objects number of objects from the memory bank
+            #         objects_to_insert_index = np.random.choice(len(self.memory_bank), self.fixed_insertion_number, replace=False)
+                objects_to_insert_index = np.random.choice(len(self.memory_bank), self.fixed_insertion_number, replace=False)
+
+                # get corners of bboxes of the scene
+                # box_size = instance_bboxes[:,3:6]
+                # heading_angle = 0
+                # center = instance_bboxes[:,0:3]
+                corner_bboxes = []
+                for i in range(instance_bboxes.shape[0]):
+                    corner_bbox = get_3d_box(box_size=instance_bboxes[i,3:6],
+                        heading_angle=0,
+                        center=instance_bboxes[i,0:3])
+                    corner_bboxes.append(corner_bbox)
+                num_collisions = 0
                 for index_of_object_to_insert in objects_to_insert_index:
                     obj = self.memory_bank[index_of_object_to_insert]
-                    if not self.use_color:
-                        # remove the color from the object
-                        point_cloud = np.concatenate([point_cloud, obj['object_point_cloud'][:,0:3]], 0)
-                    else:
-                        point_cloud = np.concatenate([point_cloud, obj['object_point_cloud']], 0)
-                    # update the instance_labels and semantic_labels
-                    # the instance label to add is the maximum instance label in the scene + 1
-                    instance_labels = np.concatenate([instance_labels, np.ones((obj['object_point_cloud'].shape[0]))*(np.max(instance_labels)+1)], 0)
-                    # the semantic label to add is the object class
-                    semantic_labels = np.concatenate([semantic_labels, np.ones((obj['object_point_cloud'].shape[0]))*obj['object_class']], 0)
-
                     # load the instance bbox from file
                     insertion_instance_bboxes = np.load(os.path.join(self.data_path, obj['scene_name'])+'_bbox.npy')
                     insertion_instance_bbox = insertion_instance_bboxes[obj['object_id']] # this box class is nyuid
-                    instance_bboxes = np.concatenate([instance_bboxes, np.expand_dims(insertion_instance_bbox, 0)], 0)
+
+                    # randomly shift the object and its bbox
+                    shift = np.random.uniform(-0.5, 0.5, 3)
+                    insertion_instance_bbox[0:3] += shift
+                    obj['object_point_cloud'][:,0:3] += shift
+
+                    # randomly scale the object and its bbox
+                    scale = np.random.uniform(0.5, 2.0, 3)
+                    insertion_instance_bbox[3:6] *= scale
+                    obj['object_point_cloud'][:,0:3] *= scale
+
+                    # check if the object can be inserted without colliding with the scene
+                    has_collision = self.check_collision(corner_bboxes=corner_bboxes,
+                                                         instance_bbox_to_insert=insertion_instance_bbox, iou_threshold=0.5)
+
+                    if has_collision:
+                        num_collisions += 1
+                        continue
+                    else:
+                        if not self.use_color:
+                            # remove the color from the object
+                            point_cloud = np.concatenate([point_cloud, obj['object_point_cloud'][:,0:3]], 0)
+                        else:
+                            point_cloud = np.concatenate([point_cloud, obj['object_point_cloud']], 0)
+                        # update the instance_labels and semantic_labels
+                        # the instance label to add is the maximum instance label in the scene + 1
+                        instance_labels = np.concatenate([instance_labels, np.ones((obj['object_point_cloud'].shape[0]))*(np.max(instance_labels)+1)], 0)
+                        # the semantic label to add is the object class
+                        semantic_labels = np.concatenate([semantic_labels, np.ones((obj['object_point_cloud'].shape[0]))*obj['object_class']], 0)
+
+                        # update the instance_bboxes
+                        instance_bboxes = np.concatenate([instance_bboxes, np.expand_dims(insertion_instance_bbox, 0)], 0)
+                if num_collisions > 0:
+                    print(f'Scan {scan_name} inserted {self.fixed_insertion_number - num_collisions} objects')
 
         if self.use_height:
             floor_height = np.percentile(point_cloud[:,2],0.99)
             height = point_cloud[:,2] - floor_height
             point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1)
 
-        if self.debug:
-            return point_cloud, instance_bboxes
+        # if self.debug:
+        #     return point_cloud, instance_bboxes
 
         # ------------------------------- LABELS ------------------------------
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
